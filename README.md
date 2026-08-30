@@ -12,8 +12,7 @@ A high-performance, threaded VCL component utilizing Raylib for off-screen rende
     🧵 Threaded Architecture: Runs the entire Raylib Game Loop in a background thread, separating logic from the UI thread.
     🧩 Full Encapsulation: The entire engine (Erosion Math, RLights, Shaders) is packed into a single drop-in TWinControl.
     ⚡ Performance Boost: Increased performance by ~20+ FPS compared to standard VCL TTimer approaches.
-        (at ryzen4500u with vega, at desktop 144fps+ no idea my sceen does not more :D m3 dualcore 20fps he not likes it so much)   
-    🛠️ Clean Code: Cleaned up codebase and translated all comments to English for GitHub.
+        (at ryzen4500u with vega, at desktop 144fps+ no idea my sceen does not more :D m3 dualcore 20fps he not likes it so much) 
     
 🙏 Acknowledgements    
     
