@@ -942,7 +942,6 @@ begin
         // 1. RAYLIB INITIALIZATION (In Thread)
         SetConfigFlags(FLAG_WINDOW_RESIZABLE or FLAG_MSAA_4X_HINT);
         InitWindow(1280, 720, 'Delphi Terrain Erosion');
-        SetTargetFPS(0);
 
         FRaylibWnd := FindWindow(nil, 'Delphi Terrain Erosion');
         if FRaylibWnd <> 0 then
@@ -1078,7 +1077,7 @@ end;
 procedure TRaylibErosionViewer.LoadAmbientColors;
 var
   img: TImage;
-  src: ^TColorRec; // <-- HIER ÄNDERN: PColor -> ^TColorRec
+  src: ^TColorRec; // <-- HIER Ã„NDERN: PColor -> ^TColorRec
   i: integer;
 begin
   img := LoadImage('resources/ambientGradient.png');
@@ -1086,7 +1085,7 @@ begin
   src := img.data; // <-- Das funktioniert jetzt direkt, da TImage.data per PointerMath auf src[i] zugreift
   for i := 0 to img.width - 1 do
   begin
-    FAmbientColors[i].r := src[i].r / 255.0; // .0 hinzugefügt, damit Extended-Typ eindeutig ist
+    FAmbientColors[i].r := src[i].r / 255.0; // .0 hinzugefÃ¼gt, damit Extended-Typ eindeutig ist
     FAmbientColors[i].g := src[i].g / 255.0;
     FAmbientColors[i].b := src[i].b / 255.0;
     FAmbientColors[i].a := src[i].a / 255.0;
