@@ -19,4 +19,4 @@ A high-performance, threaded VCL component utilizing Raylib for off-screen rende
 Original C++ Project by Delvix000.   
      
 Port to delphi in folder RaylibErosionViewer, all combined in one file.    
-Just copy the ressources folder to exe folder and...start    
+Just copy the src\ressources folder to exe folder and...start    
