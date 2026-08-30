@@ -1,10 +1,22 @@
 # RaylibErosionStandalone
-  
-       
+RaylibErosionViewer (Delphi Port)   
+    
+A high-performance, threaded VCL component utilizing Raylib for off-screen rendering. Fully encapsulates the Terrain Erosion island demo.    
+           
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/LaMitaOne/RaylibErosionStandaloneDelphi)    
-     
-Port to delphi in folder RaylibErosionViewer, all combined in one file and threaded.    
-Just copy the ressources folder to exe folder and...start    
-     
+         
 <img width="870" height="614" alt="Unbenannt" src="https://github.com/user-attachments/assets/7e56bb0f-319d-4c12-9f5e-c41b89d7d658" />
+        
+🚀 Features
 
+    🧵 Threaded Architecture: Runs the entire Raylib Game Loop in a background thread, separating logic from the UI thread.
+    🧩 Full Encapsulation: The entire engine (Erosion Math, RLights, Shaders) is packed into a single drop-in TWinControl.
+    ⚡ Performance Boost: Increased performance by ~20+ FPS compared to standard VCL TTimer approaches.
+    🛠️ Clean Code: Cleaned up codebase and translated all comments to English for GitHub.
+    
+🙏 Acknowledgements    
+    
+Original C++ Project by Delvix000.   
+     
+Port to delphi in folder RaylibErosionViewer, all combined in one file.    
+Just copy the ressources folder to exe folder and...start    
