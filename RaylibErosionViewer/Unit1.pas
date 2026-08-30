@@ -26,13 +26,10 @@ implementation
 
 procedure TForm1.FormCreate(Sender: TObject);
 begin
-  // Erstelle die Komponente und binde sie an die Form
   FErosionViewer := TRaylibErosionViewer.Create(Self);
   FErosionViewer.Parent := Self;
   FErosionViewer.Align := alClient;
   FErosionViewer.Visible := True;
-
-  // Starte die Engine und den Background-Thread
   FErosionViewer.Active := True;
 end;
 
