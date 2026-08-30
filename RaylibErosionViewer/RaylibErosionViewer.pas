@@ -13,7 +13,7 @@ unit RaylibErosionViewer;
  *  Key Features of this Delphi Port:
  *  - Threaded Architecture: Separates the entire Raylib Game Loop and Logic
  *    from the UI Thread (similar to Skia4Delphi's threaded renderer).
- *    Increased performance by ~20+ FPS compared to VCL TTimer approaches.
+ *    Increased performance by ~90+ FPS compared to VCL TTimer approaches.
  *  - Encapsulation: The entire Engine (Erosion Math, RLights, Shaders) is
  *    packed into a single, drop-in TWinControl component.
  *
