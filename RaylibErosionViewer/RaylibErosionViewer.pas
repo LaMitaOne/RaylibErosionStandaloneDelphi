@@ -31,7 +31,7 @@ interface
 
 uses
   Winapi.Windows, System.SysUtils, System.Classes, System.Math, System.SyncObjs,
-  Vcl.Controls, Vcl.Forms, Vcl.Graphics,
+  Vcl.Controls, Vcl.Forms, Vcl.Graphics, Winapi.MMSystem,
   Raylib, RayMath, rlgl;
 
 const
@@ -927,6 +927,10 @@ begin
 end;
 
 procedure TRaylibErosionViewer.StartThread;
+var
+  Freq: Int64;
+  FrameStart, FrameEnd, FrameTicks: Int64;
+  RestMs: Double;
 begin
   if FThreadActive then Exit;
   FThreadActive := True;
@@ -1005,25 +1009,41 @@ begin
         FInitialized := True;
         LastTime := TThread.GetTickCount;
 
-        // 3. THREAD GAME LOOP
-        while not TThread.CheckTerminated do
+      // 3. THREAD GAME LOOP
+      QueryPerformanceFrequency(Freq);
+      timeBeginPeriod(1);
+
+      while not TThread.CheckTerminated do
+      begin
+        QueryPerformanceCounter(FrameStart);
+
+        if WindowShouldClose() then Break;
+
+        if not FPaused then
+          UpdateGame;
+
+        RenderGame;
+
+        // FPS Control
+        if FTargetFPS > 0 then
         begin
-          CurrentTime := TThread.GetTickCount;
-          DeltaSec := (CurrentTime - LastTime) / 1000.0;
-          LastTime := CurrentTime;
+          FrameTicks := Freq div FTargetFPS;  // Ticks-Budget per Frame
+          QueryPerformanceCounter(FrameEnd);
+          RestMs := (FrameTicks - (FrameEnd - FrameStart)) * 1000 / Freq;
+          if RestMs > 0 then
+          begin
+            if RestMs > 2 then
+              Sleep(Trunc(RestMs) - 2);      
+            repeat                             
+              QueryPerformanceCounter(FrameEnd);
+            until (FrameEnd - FrameStart) >= FrameTicks;
+          end;
+        end
+        else
+          Sleep(1);  
+      end;
 
-          if WindowShouldClose() then Break;
-
-          if not FPaused then
-            UpdateGame;
-
-          RenderGame;
-
-          // FPS Control
-          if FTargetFPS > 0 then SleepTime := Round(1000 / FTargetFPS)
-          else SleepTime := 16;
-          Sleep(SleepTime);
-        end;
+      timeEndPeriod(1);
 
         // 4. CLEANUP
         FInitialized := False;
@@ -1800,7 +1820,7 @@ begin
   if KeyPressed(VK_F2) then
   begin
     FLockTo60FPS := not FLockTo60FPS;
-    if FLockTo60FPS then SetTargetFPS(60) else SetTargetFPS(0);
+    if FLockTo60FPS then SetTargetFPS(120) else SetTargetFPS(0);
   end;
 
   if KeyPressed(VK_F3) then
