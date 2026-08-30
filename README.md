@@ -1,3 +1,4 @@
+
 # RaylibErosionStandalone
 RaylibErosionViewer (Delphi Port)   
     
@@ -24,3 +25,6 @@ Original C++ Project by Delvix000.
      
 Port to delphi in folder RaylibErosionViewer, all combined in one file.    
 Just copy the src\ressources folder to exe folder and...start    
+
+395 fps vcl...DELPHI ROCKS :D    
+<img width="628" height="470" alt="Unbenannt" src="https://github.com/user-attachments/assets/055dc5f1-855c-46c3-9a3b-9e6d2d7df338" />
