@@ -16,7 +16,7 @@ A high-performance, threaded VCL component utilizing Raylib for off-screen rende
     🧩 Full Encapsulation: The entire engine (Erosion Math, RLights, Shaders) is packed into a single drop-in TWinControl.
     ⚡ Performance Boost: Increased performance by ~90+ FPS compared to standard VCL TTimer approaches. Timer done 31fps...
         Threaded now...
-        ryzen4500u with vega up to 120fps was ok here, at desktop (RTX 2060s) 380fps+ oO ehm yes really :D 40% gpu 12% cpu at 380fps wtf,
+        ryzen4500u with vega up to 120fps was ok here, at desktop (RTX 2060s 1440p) 380fps+ oO ehm yes really :D 40% gpu 12% cpu at 380fps wtf,
         m3 dualcore 20fps he not likes it so much) 
     
 🙏 Acknowledgements    
