@@ -6,7 +6,9 @@ A high-performance, threaded VCL component utilizing Raylib for off-screen rende
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/LaMitaOne/RaylibErosionStandaloneDelphi)    
          
 <img width="870" height="614" alt="Unbenannt" src="https://github.com/user-attachments/assets/7e56bb0f-319d-4c12-9f5e-c41b89d7d658" />
-        
+    
+<img width="360" height="202" alt="azzqo3" src="https://github.com/user-attachments/assets/77901292-02a0-486c-ae63-d4f95f01c9ac" />
+             
 🚀 Features
 
     🧵 Threaded Architecture: Runs the entire Raylib Game Loop in a background thread, separating logic from the UI thread.
