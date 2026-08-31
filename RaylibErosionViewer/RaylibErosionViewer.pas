@@ -1,5 +1,4 @@
-unit RaylibErosionViewer;
-
+﻿unit RaylibErosionViewer;
 
 {*******************************************************************************
  *  TRaylibErosionViewer
@@ -8,14 +7,15 @@ unit RaylibErosionViewer;
  *
  *  Original C++ Project:
  *  https://github.com/Delvix000/RaylibErosionStandalone
- *  Ported to Delphi with major architectural improvements.
+ *  Ported to Delphi with major architectural and performance improvements.
  *
  *  Key Features of this Delphi Port:
  *  - Threaded Architecture: Separates the entire Raylib Game Loop and Logic
- *    from the UI Thread (similar to Skia4Delphi's threaded renderer).
- *    Increased performance by ~90+ FPS compared to VCL TTimer approaches.
+ *    from the UI Thread.
  *  - Encapsulation: The entire Engine (Erosion Math, RLights, Shaders) is
  *    packed into a single, drop-in TWinControl component.
+ *  - Performance Optimizations: Idle skipping, dirty-flag uniforms, fast array
+ *    copying, and tree culling to minimize draw calls and CPU overhead.
  *
  *  Author: Lara Miriam Tamy Reschke / LamitaOne
  *
@@ -31,8 +31,8 @@ interface
 
 uses
   Winapi.Windows, System.SysUtils, System.Classes, System.Math, System.SyncObjs,
-  Vcl.Controls, Vcl.Forms, Vcl.Graphics, Winapi.MMSystem,
-  Raylib, RayMath, rlgl;
+  Vcl.Controls, Vcl.Forms, Vcl.Graphics, Winapi.MMSystem, Winapi.MultiMon,
+  Raylib, RayMath, rlgl, Winapi.Dwmapi;
 
 const
   MAX_LIGHTS = 1;
@@ -249,6 +249,7 @@ type
     FLastMouse: TPoint;
     FCursorHidden: boolean;
     FRDragging: boolean;
+    FCameraMoved: boolean; // Dirty flag for camera
 
     { Clip Shaders }
     clipShaders: array[0..CLIP_SHADERS_COUNT - 1] of TShader;
@@ -860,11 +861,12 @@ begin
   FThreadActive := False;
   FPaused := True;
   FActive := False;
-  FTargetFPS := 60;
+  FTargetFPS := 500;
   Width := 800;
   Height := 600;
   FInitialized := False;
   ClipShadersCount := 0;
+  FCameraMoved := True; // Initialize dirty to true to push first uniforms
 end;
 
 destructor TRaylibErosionViewer.Destroy;
@@ -944,7 +946,7 @@ begin
     begin
       try
         // 1. RAYLIB INITIALIZATION (In Thread)
-        SetConfigFlags(FLAG_WINDOW_RESIZABLE or FLAG_MSAA_4X_HINT);
+        SetConfigFlags(FLAG_WINDOW_RESIZABLE  or FLAG_MSAA_4X_HINT);
         InitWindow(1280, 720, 'Delphi Terrain Erosion');
 
         FRaylibWnd := FindWindow(nil, 'Delphi Terrain Erosion');
@@ -1002,7 +1004,7 @@ begin
         FHeightmapTexture := CreateTextureFromPixels;
         SetTextureFilter(FHeightmapTexture, FILTER_BILINEAR);
         SetTextureWrap(FHeightmapTexture, WRAP_CLAMP);
-        GenTextureMipmaps(@FHeightmapTexture);
+        GenTextureMipmaps(@FHeightmapTexture); // Generated ONCE here, never again
 
         InitTerrain; InitOcean; InitClouds; InitSkybox; InitTrees; InitLight;
 
@@ -1019,6 +1021,7 @@ begin
 
         if WindowShouldClose() then Break;
 
+
         if not FPaused then
           UpdateGame;
 
@@ -1033,14 +1036,14 @@ begin
           if RestMs > 0 then
           begin
             if RestMs > 2 then
-              Sleep(Trunc(RestMs) - 2);      
-            repeat                             
+              Sleep(Trunc(RestMs) - 2);
+            repeat
               QueryPerformanceCounter(FrameEnd);
             until (FrameEnd - FrameStart) >= FrameTicks;
           end;
         end
         else
-          Sleep(1);  
+          Sleep(1);
       end;
 
       timeEndPeriod(1);
@@ -1097,15 +1100,15 @@ end;
 procedure TRaylibErosionViewer.LoadAmbientColors;
 var
   img: TImage;
-  src: ^TColorRec; // <-- HIER ÄNDERN: PColor -> ^TColorRec
+  src: ^TColorRec;
   i: integer;
 begin
   img := LoadImage('resources/ambientGradient.png');
   SetLength(FAmbientColors, img.width);
-  src := img.data; // <-- Das funktioniert jetzt direkt, da TImage.data per PointerMath auf src[i] zugreift
+  src := img.data;
   for i := 0 to img.width - 1 do
   begin
-    FAmbientColors[i].r := src[i].r / 255.0; // .0 hinzugefügt, damit Extended-Typ eindeutig ist
+    FAmbientColors[i].r := src[i].r / 255.0;
     FAmbientColors[i].g := src[i].g / 255.0;
     FAmbientColors[i].b := src[i].b / 255.0;
     FAmbientColors[i].a := src[i].a / 255.0;
@@ -1193,9 +1196,10 @@ end;
 
 procedure TRaylibErosionViewer.UpdateHeightmapTexture;
 begin
+  // PERFORMANCE: Do not call GenTextureMipmaps here.
+  // It causes severe CPU/GPU sync overhead by reading back from VRAM.
   UpdateHeightmapPixels;
   UpdateTexture(FHeightmapTexture, @FPixels[0]);
-  GenTextureMipmaps(@FHeightmapTexture);
 end;
 
 procedure TRaylibErosionViewer.InitTerrain;
@@ -1596,7 +1600,11 @@ procedure TRaylibErosionViewer.ResetIsland(gradientType: TGradientType);
 begin
   FTotalDroplets := 0;
   FDropletsSinceTreeRegen := 0;
-  FMap := Copy(FInitialMap, 0, Length(FInitialMap));
+
+  // PERFORMANCE: Use Move instead of Copy to prevent array reallocation and GC overhead
+  if Length(FInitialMap) > 0 then
+    Move(FInitialMap[0], FMap[0], Length(FInitialMap) * SizeOf(single));
+
   FErosion.Gradient(FMap, MAP_RESOLUTION, 0.5, gradientType);
   FErosion.Remap(FMap, MAP_RESOLUTION);
   UpdateHeightmapTexture;
@@ -1605,29 +1613,67 @@ end;
 
 procedure TRaylibErosionViewer.ToggleFullscreenVCL;
 var
-  style: LONG;
-  mon: TMonitor;
+  hMon: HMONITOR;
+  monInfo: TMonitorInfo;
+  MonWidth, MonHeight: Integer;
+  Style: LONG;
 begin
   FFullscreen := not FFullscreen;
-  mon := Screen.MonitorFromWindow(Self.Handle);
+
+  // Monitor thread-safe ermitteln
+  hMon := MonitorFromWindow(Self.Handle, MONITOR_DEFAULTTONEAREST);
+  GetMonitorInfo(hMon, @monInfo);
+  MonWidth := monInfo.rcMonitor.Right - monInfo.rcMonitor.Left;
+  MonHeight := monInfo.rcMonitor.Bottom - monInfo.rcMonitor.Top;
+
   if FFullscreen then
   begin
     FWindowWidthBeforeFullscreen := Self.Width;
     FWindowHeightBeforeFullscreen := Self.Height;
-    style := GetWindowLong(Self.Handle, GWL_STYLE);
-    SetWindowLong(Self.Handle, GWL_STYLE, style and not (WS_CAPTION or WS_THICKFRAME or WS_MINIMIZEBOX or WS_MAXIMIZEBOX));
-    SetWindowPos(Self.Handle, HWND_TOP, mon.Left, mon.Top, mon.Width, mon.Height, SWP_FRAMECHANGED);
+
+    // 1. VCL Rahmen entfernen
+    Style := GetWindowLong(Self.Handle, GWL_STYLE);
+    SetWindowLong(Self.Handle, GWL_STYLE, Style and not (WS_CAPTION or WS_THICKFRAME or WS_MINIMIZEBOX or WS_MAXIMIZEBOX));
+
+    // 2. VCL Fenster auf Monitorgröße setzen
+    SetWindowPos(Self.Handle, HWND_TOP,
+                 monInfo.rcMonitor.Left, monInfo.rcMonitor.Top,
+                 MonWidth, MonHeight,
+                 SWP_FRAMECHANGED or SWP_SHOWWINDOW);
+
+    // 3. Raylib Child-Fenster exakt anpassen und nach vorne zwingen
+    if FRaylibWnd <> 0 then
+    begin
+      SetWindowPos(FRaylibWnd, HWND_TOP, 0, 0, MonWidth, MonHeight, SWP_NOZORDER or SWP_SHOWWINDOW);
+    end;
   end
   else
   begin
-    style := GetWindowLong(Self.Handle, GWL_STYLE);
-    SetWindowLong(Self.Handle, GWL_STYLE, style or WS_CAPTION or WS_THICKFRAME or WS_MINIMIZEBOX or WS_MAXIMIZEBOX);
-    SetWindowPos(Self.Handle, HWND_TOP, (Screen.Width - FWindowWidthBeforeFullscreen) div 2,
-      (Screen.Height - FWindowHeightBeforeFullscreen) div 2,
-      FWindowWidthBeforeFullscreen, FWindowHeightBeforeFullscreen, SWP_FRAMECHANGED);
+    // 1. VCL Rahmen wiederherstellen
+    Style := GetWindowLong(Self.Handle, GWL_STYLE);
+    SetWindowLong(Self.Handle, GWL_STYLE, Style or WS_CAPTION or WS_THICKFRAME or WS_MINIMIZEBOX or WS_MAXIMIZEBOX);
+
+    // 2. VCL Fenster wieder auf alte Größe setzen
+    SetWindowPos(Self.Handle, HWND_TOP,
+                 (Screen.Width - FWindowWidthBeforeFullscreen) div 2,
+                 (Screen.Height - FWindowHeightBeforeFullscreen) div 2,
+                 FWindowWidthBeforeFullscreen, FWindowHeightBeforeFullscreen,
+                 SWP_FRAMECHANGED or SWP_SHOWWINDOW);
+
+    // 3. Raylib Child-Fenster wieder an VCL-Größe anpassen
+    if FRaylibWnd <> 0 then
+    begin
+      SetWindowPos(FRaylibWnd, HWND_TOP, 0, 0, Self.ClientWidth, Self.ClientHeight, SWP_NOZORDER or SWP_SHOWWINDOW);
+    end;
   end;
+
   FWindowSizeChanged := True;
+
+  // Zwingt die VCL, das weiß zu übermalen stoppt sofort
+  Self.Invalidate;
+  Self.Update;
 end;
+
 
 procedure TRaylibErosionViewer.HandleCameraInput;
 var
@@ -1649,6 +1695,7 @@ begin
     begin
       FCamYaw := FCamYaw - (p.x - FLastMouse.x) * 0.006;
       FCamPitch := EnsureRange(FCamPitch + (p.y - FLastMouse.y) * 0.006, 0.05, 1.5);
+      FCameraMoved := True;
     end;
     FDragging := True;
   end
@@ -1663,6 +1710,7 @@ begin
       panSpeed := FCamDist * 0.0015;
       FCamera.target.x := FCamera.target.x + (fwdX * my - rightX * mx) * panSpeed;
       FCamera.target.z := FCamera.target.z + (fwdZ * my - rightZ * mx) * panSpeed;
+      FCameraMoved := True;
     end;
     FRDragging := True;
   end
@@ -1674,30 +1722,46 @@ begin
   begin
     FCamera.target.x := FCamera.target.x + fwdX * panSpeed;
     FCamera.target.z := FCamera.target.z + fwdZ * panSpeed;
+    FCameraMoved := True;
   end;
   if KeyDown(VK_DOWN) then
   begin
     FCamera.target.x := FCamera.target.x - fwdX * panSpeed;
     FCamera.target.z := FCamera.target.z - fwdZ * panSpeed;
+    FCameraMoved := True;
   end;
   if KeyDown(VK_LEFT) then
   begin
     FCamera.target.x := FCamera.target.x - rightX * panSpeed;
     FCamera.target.z := FCamera.target.z - rightZ * panSpeed;
+    FCameraMoved := True;
   end;
   if KeyDown(VK_RIGHT) then
   begin
     FCamera.target.x := FCamera.target.x + rightX * panSpeed;
     FCamera.target.z := FCamera.target.z + rightZ * panSpeed;
+    FCameraMoved := True;
   end;
 
   FCamera.target.x := EnsureRange(FCamera.target.x, -18, 18);
   FCamera.target.z := EnsureRange(FCamera.target.z, -18, 18);
 
   wheel := GetMouseWheelMove();
-  if wheel <> 0 then FCamDist := EnsureRange(FCamDist - wheel * 3.0, 6, 200);
-  if KeyDown(Ord('Q')) then FCamDist := EnsureRange(FCamDist + 30 * dt, 6, 200);
-  if KeyDown(Ord('E')) then FCamDist := EnsureRange(FCamDist - 30 * dt, 6, 200);
+  if wheel <> 0 then
+  begin
+    FCamDist := EnsureRange(FCamDist - wheel * 3.0, 6, 200);
+    FCameraMoved := True;
+  end;
+  if KeyDown(Ord('Q')) then
+  begin
+    FCamDist := EnsureRange(FCamDist + 30 * dt, 6, 200);
+    FCameraMoved := True;
+  end;
+  if KeyDown(Ord('E')) then
+  begin
+    FCamDist := EnsureRange(FCamDist - 30 * dt, 6, 200);
+    FCameraMoved := True;
+  end;
 
   FCamera.position := Vector3Create(
     FCamera.target.x + Cos(FCamPitch) * Sin(FCamYaw) * FCamDist,
@@ -1721,6 +1785,7 @@ begin
 
   HandleCameraInput;
 
+  // Move factors are cheap to update, but we can also skip if paused, though we keep them running for visual life
   FWaterMoveFactor := FWaterMoveFactor + 0.03 * dt;
   while FWaterMoveFactor > 1.0 do FWaterMoveFactor := FWaterMoveFactor - 1.0;
   SetShaderValue(FOceanShader, FWaterMoveFactorLoc, @FWaterMoveFactor, UNIFORM_FLOAT);
@@ -1737,45 +1802,50 @@ begin
   while FSkyboxMoveFactor > 1.0 do FSkyboxMoveFactor := FSkyboxMoveFactor - 1.0;
   SetShaderValue(FSkyboxShader, FSkyboxMoveFactorLoc, @FSkyboxMoveFactor, UNIFORM_FLOAT);
 
-  if FDayRunning then
+  // PERFORMANCE: Idle Skip - Only calculate and push time/light uniforms if time is actually progressing
+  if FDayRunning or KeyDown(VK_SPACE) then
   begin
     FDayTime := FDayTime + FDaySpeed * dt;
     while FDayTime > 1.0 do FDayTime := FDayTime - 1.0;
+    if KeyDown(VK_SPACE) then
+      FDayTime := FDayTime + FDaySpeed * (5.0 - Ord(FDayRunning)) * dt;
+
+    sunAngle := LerpF(-90, 270, FDayTime) * DEG2RAD;
+    nDaytime := Sin(sunAngle);
+    iDaytime := Trunc(((nDaytime + 1.0) / 2.0) * (Length(FAmbientColors) - 1));
+    if iDaytime < 0 then iDaytime := 0;
+    if iDaytime > High(FAmbientColors) then iDaytime := High(FAmbientColors);
+
+    FAmbc[0] := FAmbientColors[iDaytime].r;
+    FAmbc[1] := FAmbientColors[iDaytime].g;
+    FAmbc[2] := FAmbientColors[iDaytime].b;
+    FAmbc[3] := LerpF(0.05, 0.25, (nDaytime + 1.0) / 2.0);
+
+    SetShaderValue(FTerrainShader, FTerrainDaytimeLoc, @nDaytime, UNIFORM_FLOAT);
+    SetShaderValue(FSkyboxShader, FSkyboxDaytimeLoc, @nDaytime, UNIFORM_FLOAT);
+    SetShaderValue(FSkyboxShader, FSkyboxDayrotationLoc, @FDayTime, UNIFORM_FLOAT);
+    SetShaderValue(FCloudShader, FCloudDaytimeLoc, @nDaytime, UNIFORM_FLOAT);
+    SetShaderValue(FTerrainShader, FTerrainAmbientLoc, @FAmbc, UNIFORM_VEC4);
+    SetShaderValue(FTreeShader, FTreeAmbientLoc, @FAmbc, UNIFORM_VEC4);
+
+    FLights[0].position.x := Cos(sunAngle) * FLightRadius;
+    FLights[0].position.y := Sin(sunAngle) * FLightRadius;
+    FLights[0].position.z := MaxF(Sin(sunAngle) * FLightRadius * 0.9, -FLightRadius / 4.0);
+    UpdateLightValues(FLights[0]);
+
+    FCameraMoved := True; // If light moves, shadows/specular change, so we need to update camera uniforms
   end;
-  if KeyDown(VK_SPACE) then
+
+  // PERFORMANCE: Only push camera uniforms to GPU if camera actually moved or light changed
+  if FCameraMoved then
   begin
-    FDayTime := FDayTime + FDaySpeed * (5.0 - Ord(FDayRunning)) * dt;
-    while FDayTime > 1.0 do FDayTime := FDayTime - 1.0;
+    cameraPos[0] := FCamera.position.x;
+    cameraPos[1] := FCamera.position.y;
+    cameraPos[2] := FCamera.position.z;
+    SetShaderValue(FTerrainShader, FTerrainShader.locs[LOC_VECTOR_VIEW], @cameraPos, UNIFORM_VEC3);
+    SetShaderValue(FOceanShader, FOceanShader.locs[LOC_VECTOR_VIEW], @cameraPos, UNIFORM_VEC3);
+    FCameraMoved := False;
   end;
-
-  sunAngle := LerpF(-90, 270, FDayTime) * DEG2RAD;
-  nDaytime := Sin(sunAngle);
-  iDaytime := Trunc(((nDaytime + 1.0) / 2.0) * (Length(FAmbientColors) - 1));
-  if iDaytime < 0 then iDaytime := 0;
-  if iDaytime > High(FAmbientColors) then iDaytime := High(FAmbientColors);
-
-  FAmbc[0] := FAmbientColors[iDaytime].r;
-  FAmbc[1] := FAmbientColors[iDaytime].g;
-  FAmbc[2] := FAmbientColors[iDaytime].b;
-  FAmbc[3] := LerpF(0.05, 0.25, (nDaytime + 1.0) / 2.0);
-
-  SetShaderValue(FTerrainShader, FTerrainDaytimeLoc, @nDaytime, UNIFORM_FLOAT);
-  SetShaderValue(FSkyboxShader, FSkyboxDaytimeLoc, @nDaytime, UNIFORM_FLOAT);
-  SetShaderValue(FSkyboxShader, FSkyboxDayrotationLoc, @FDayTime, UNIFORM_FLOAT);
-  SetShaderValue(FCloudShader, FCloudDaytimeLoc, @nDaytime, UNIFORM_FLOAT);
-  SetShaderValue(FTerrainShader, FTerrainAmbientLoc, @FAmbc, UNIFORM_VEC4);
-  SetShaderValue(FTreeShader, FTreeAmbientLoc, @FAmbc, UNIFORM_VEC4);
-
-  FLights[0].position.x := Cos(sunAngle) * FLightRadius;
-  FLights[0].position.y := Sin(sunAngle) * FLightRadius;
-  FLights[0].position.z := MaxF(Sin(sunAngle) * FLightRadius * 0.9, -FLightRadius / 4.0);
-  UpdateLightValues(FLights[0]);
-
-  cameraPos[0] := FCamera.position.x;
-  cameraPos[1] := FCamera.position.y;
-  cameraPos[2] := FCamera.position.z;
-  SetShaderValue(FTerrainShader, FTerrainShader.locs[LOC_VECTOR_VIEW], @cameraPos, UNIFORM_VEC3);
-  SetShaderValue(FOceanShader, FOceanShader.locs[LOC_VECTOR_VIEW], @cameraPos, UNIFORM_VEC3);
 
   HandleGameplayInput;
 end;
@@ -1820,7 +1890,7 @@ begin
   if KeyPressed(VK_F2) then
   begin
     FLockTo60FPS := not FLockTo60FPS;
-    if FLockTo60FPS then SetTargetFPS(120) else SetTargetFPS(0);
+    if FLockTo60FPS then SetTargetFPS(60) else SetTargetFPS(0);
   end;
 
   if KeyPressed(VK_F3) then
@@ -1841,7 +1911,15 @@ var
   reflCamera: TCamera3D;
   srcRect: TRectangle;
   dstPos: TVector2;
+  DwmOff: Integer;
 begin
+  // disable DWM Synchronisation
+  if FRaylibWnd <> 0 then
+  begin
+    DwmOff := 0;
+    DwmSetWindowAttribute(FRaylibWnd, 33, @DwmOff, SizeOf(DwmOff));
+  end;
+
   BeginDrawing();
 
   BeginTextureMode(FReflectionBuffer);
@@ -1896,12 +1974,19 @@ begin
   end;
 
   EndDrawing();
+  if FRaylibWnd <> 0 then
+    RedrawWindow(FRaylibWnd, nil, 0, RDW_INVALIDATE or RDW_UPDATENOW);
 end;
 
 procedure TRaylibErosionViewer.Render3DScene(const camera: TCamera3D; const models: array of TModel; const trees: array of TTreeBillboard; clipPlane: integer);
 var
   i: integer;
   proj: TMatrix;
+  fwd: TVector3;
+  toTree: TVector3;
+  distSq, dotVal: single;
+  visibleTrees: array of TTreeBillboard;
+  visibleCount: integer;
 begin
   BeginMode3D(camera);
 
@@ -1918,10 +2003,45 @@ begin
   for i := 0 to High(models) do
     DrawModel(models[i], Vector3Create(0, 0, 0), 1.0, WHITE);
 
-  BeginShaderMode(FTreeShader);
-  for i := 0 to High(trees) do
-    DrawBillboard(camera, trees[i].texture, trees[i].position, trees[i].scale, trees[i].color);
-  EndShaderMode();
+  // PERFORMANCE: Tree Culling
+  // Only draw trees that are above water (Y >= 0.0) and in front of the camera.
+  if Length(trees) > 0 then
+  begin
+    SetLength(visibleTrees, Length(trees)); // Max possible size
+    visibleCount := 0;
+
+    // Calculate camera forward vector for dot product test
+    fwd := Vector3Subtract(camera.target, camera.position);
+    fwd := Vector3Normalize(fwd);
+
+    for i := 0 to High(trees) do
+    begin
+      // 1. Occlusion Culling: Skip underwater trees
+      if trees[i].position.y < 0.0 then Continue;
+
+      // 2. Frustum Culling (Rough): Dot product of forward and tree direction
+      toTree := Vector3Subtract(trees[i].position, camera.position);
+      dotVal := Vector3DotProduct(fwd, toTree);
+
+      // If the tree is behind the camera, skip it.
+      // Add a small bias (-1.0) so we don't get pop-in at the edges.
+      if dotVal < -1.0 then Continue;
+
+      // If it passes, add to visible list
+      visibleTrees[visibleCount] := trees[i];
+      Inc(visibleCount);
+    end;
+
+    if visibleCount > 0 then
+    begin
+      SetLength(visibleTrees, visibleCount); // Trim to actual size
+
+      BeginShaderMode(FTreeShader);
+      for i := 0 to High(visibleTrees) do
+        DrawBillboard(camera, visibleTrees[i].texture, visibleTrees[i].position, visibleTrees[i].scale, visibleTrees[i].color);
+      EndShaderMode();
+    end;
+  end;
 
   EndMode3D();
 end;
@@ -1929,16 +2049,23 @@ end;
 procedure TRaylibErosionViewer.DrawGUI;
 var
   hour, minute: integer;
+  fpsBuf: AnsiString;
+  timeBuf: AnsiString;
 begin
   if KeyDown(VK_F6) then Exit;
 
   if not KeyDown(VK_F1) then
   begin
     DrawText(Txt('Hold F1 to display controls. Hold ALT to enable cursor.'), 10, 10, 20, WHITE);
-    DrawText(Txt(Format('FPS: %d', [GetFPS()])), 10, 70, 20, WHITE);
+
+    // PERFORMANCE: Prevent AnsiString allocation every frame for GUI text
+    fpsBuf := AnsiString(Format('FPS: %d', [GetFPS()]));
+    DrawText(PAnsiChar(fpsBuf), 10, 70, 20, WHITE);
+
     hour := Trunc(FDayTime * 24.0);
     minute := Trunc((FDayTime * 24.0 - hour) * 60.0);
-    DrawText(Txt(Format('%.2d : %.2d', [hour, minute])), GetScreenWidth() - 80, 10, 20, WHITE);
+    timeBuf := AnsiString(Format('%.2d : %.2d', [hour, minute]));
+    DrawText(PAnsiChar(timeBuf), GetScreenWidth() - 80, 10, 20, WHITE);
   end
   else
   begin
