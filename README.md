@@ -18,8 +18,9 @@ A high-performance, threaded VCL component utilizing Raylib for off-screen rende
         Threaded now...
         ryzen4500u with vega up to 120fps was ok here, at desktop (RTX 2060s 1440p) 380fps+ oO ehm yes really :D 40% gpu 12% cpu at 380fps wtf,
         m3 dualcore 20fps he not likes it so much) 
-        Optimized it some more, vega does now around 160-170fps, but rtx around 380 no change...
-        seems something else is limiting, maybe newer screen/card more possible, no idea
+        Optimized it some more, vega does now around 160-170fps, but rtx around 380 no change...        
+        seems something else is limiting, maybe newer screen/card more possible, no idea.
+        ...fanless M3 dualcore does now 100 fps...not bad  
     
 🙏 Acknowledgements    
     
